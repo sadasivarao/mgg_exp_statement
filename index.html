@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Financial Statement Generator</title>
+    
+    <!-- 1. External Libraries (CDN) -->
+    <!-- Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (To translate JSX in the browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Utility Libraries: SheetJS (Excel), HTML2Canvas, JSPDF -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- 2. Custom CSS -->
+    <style>
+      body { font-family: 'Inter', sans-serif; }
+      
+      /* Print Styles */
+      @media print {
+        .no-print { display: none !important; }
+        @page { size: landscape; margin: 5mm; }
+        body { background-color: white !important; margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .container, .max-w-6xl, .max-w-5xl { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+        .shadow-lg, .shadow-md, .shadow-xl, .shadow { box-shadow: none !important; }
+        .border, .border-b-2, .border-t-2 { border-color: #cbd5e1 !important; }
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "html2canvas": "https://aistudiocdn.com/html2canvas@^1.4.1",
+    "jspdf": "https://aistudiocdn.com/jspdf@^3.0.4",
+    "xlsx": "https://aistudiocdn.com/xlsx@^0.18.5"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+    <div id="root"></div>
+
+    <!-- 3. Application Logic -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- ICONS (Replaces Lucide-React for standalone) ---
+        const Icon = ({ path, size = 20, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
+        );
+        const UploadIcon = (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></>} />;
+        const FileTextIcon = (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></>} />;
+        const PlusIcon = (props) => <Icon {...props} path={<><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></>} />;
+        const Trash2Icon = (props) => <Icon {...props} path={<><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></>} />;
+        const DownloadIcon = (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></>} />;
+        const PrinterIcon = (props) => <Icon {...props} path={<><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></>} />;
+
+
+        // --- UTILS: formatting.ts ---
+        const formatCurrency = (value) => {
+            return value.toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        };
+
+        const monthNames = {
+            '1': 'January', '2': 'February', '3': 'March', '4': 'April',
+            '5': 'May', '6': 'June', '7': 'July', '8': 'August',
+            '9': 'September', '10': 'October', '11': 'November', '12': 'December'
+        };
+
+        const getPreviousMonthName = (month) => {
+            const monthNum = parseInt(month);
+            if (isNaN(monthNum)) return '';
+            let prevMonthNum = monthNum - 1;
+            if (prevMonthNum === 0) prevMonthNum = 12;
+            const monthNamesArray = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return monthNamesArray[prevMonthNum] || '';
+        };
+
+        const addSpacesToText = (text) => {
+            if (!text) return '';
+            let result = String(text);
+            result = result.replace(/_/g, ' ');
+            result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
+            result = result.replace(/(\d+[a-z]*)([A-Za-z])/g, '$1 $2');
+            result = result.replace(/([A-Za-z])(\d)/g, '$1 $2');
+            result = result.replace(/([a-z])([A-Z])-([A-Z])/g, '$1 $2 - $3');
+            result = result.replace(/([a-z])([A-Z])-([a-z])/g, '$1 $2 - $3');
+            
+            const commonWords = ['Cash', 'Bank', 'Watchman', 'Garbage', 'Purchase', 'Procurement', 'Repair', 'Electricity', 'Parking', 'Lifting', 'Tank', 'Security', 'Advance', 'Remittance', 'Collection', 'Payment', 'Charges', 'Salary', 'Maintenance', 'Floor', 'Electrical', 'Plumbing', 'House', 'Stationery', 'Generator', 'Bleaching', 'Motor', 'Starter', 'Panel', 'Broom', 'Mop', 'Distilled', 'Water', 'Garden', 'Cutter', 'Battery', 'Operated', 'Cover', 'Powder', 'Sticker', 'Printing', 'Wheel', 'Guest', 'Pass', 'Waste', 'Front', 'Apt', 'Paid', 'GHMC'];
+            
+            commonWords.forEach(word => {
+                const regex = new RegExp(`(${word})([a-z])`, 'gi');
+                result = result.replace(regex, '$1 $2');
+            });
+            
+            result = result.replace(/(by)(\d)/gi, '$1 $2');
+            result = result.replace(/(for)([A-Z])/gi, '$1 $2');
+            result = result.replace(/\s+/g, ' ');
+            return result.trim();
+        };
+
+        // --- UTILS: processor.ts ---
+        const normalizeFieldName = (name) => String(name || '').trim().toLowerCase();
+        
+        const cleanNumericValue = (value) => {
+            if (value === null || value === undefined || value === '') return '';
+            if (typeof value === 'number') return String(value);
+            let cleaned = String(value).trim();
+            cleaned = cleaned.replace(/^["']|["']$/g, '');
+            cleaned = cleaned.replace(/\s+/g, '');
+            return cleaned;
+        };
+
+        const parseNumericValue = (value) => {
+            if (!value) return 0;
+            const cleaned = cleanNumericValue(value);
+            return parseFloat(cleaned.replace(/,/g, '')) || 0;
+        };
+
+        const getFieldValue = (row, possibleNames, isNumeric = false) => {
+            if (!row || typeof row !== 'object') return '';
+            for (const name of possibleNames) {
+                if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+                    return isNumeric ? cleanNumericValue(row[name]) : String(row[name]).trim();
+                }
+                const keys = Object.keys(row);
+                const normalizedName = normalizeFieldName(name);
+                for (const key of keys) {
+                    const normalizedKey = normalizeFieldName(key);
+                    if (normalizedKey === normalizedName) {
+                        const value = row[key];
+                        if (value !== undefined && value !== null && value !== '') {
+                            return isNumeric ? cleanNumericValue(value) : String(value).trim();
+                        }
+                    }
+                }
+            }
+            return '';
+        };
+
+        const monthNameToNumber = { 'january': '1', 'jan': '1', 'february': '2', 'feb': '2', 'march': '3', 'mar': '3', 'april': '4', 'apr': '4', 'may': '5', 'june': '6', 'jun': '6', 'july': '7', 'jul': '7', 'august': '8', 'aug': '8', 'september': '9', 'sep': '9', 'sept': '9', 'october': '10', 'oct': '10', 'november': '11', 'nov': '11', 'december': '12', 'dec': '12' };
+
+        const monthToNumber = (monthValue) => {
+            if (!monthValue) return '';
+            const monthStr = String(monthValue).trim().toLowerCase();
+            const num = parseInt(monthStr);
+            if (!isNaN(num) && num >= 1 && num <= 12) return String(num);
+            return monthNameToNumber[monthStr] || monthStr;
+        };
+
+        const determineTransactionType = (row, isReceipt) => {
+            const bankCashCheque = String(getFieldValue(row, ['Bank_cash_cheque', 'bank_cash_cheque', 'Bank Cash Cheque']) || '').toLowerCase();
+            const details = String(getFieldValue(row, ['Details', 'details', 'Detail']) || '').toLowerCase();
+            const bankWithdrawl = parseNumericValue(getFieldValue(row, ['Bank_withdrawl', 'bank_withdrawl', 'Bank_withdrawal', 'Bank Withdrawal']));
+            
+            if (bankWithdrawl > 0) return isReceipt ? 'cash' : 'bank';
+            if (bankCashCheque.includes('bank') || bankCashCheque.includes('cheque') || bankCashCheque.includes('dd')) return 'bank';
+            if (bankCashCheque.includes('cash')) return 'cash';
+            if (details.includes('cheque') || details.includes('bank') || details.includes('dd') || details.includes('neft') || details.includes('rtgs') || details.includes('online')) return 'bank';
+            if (details.includes('cash') || details.includes('withdraw')) return 'cash';
+            if (row.Investments || row.investments || row.Investment || row.investment) return 'bank';
+            return 'bank';
+        };
+
+        const generateStatementData = (accountsData, balanceData, year, month, manualEntries) => {
+            const filteredAccounts = accountsData.filter(row => {
+                let rowMonth = getFieldValue(row, ['month', 'Month', 'MONTH', 'MON', 'Mon'], false);
+                let rowYear = getFieldValue(row, ['year', 'Year', 'YEAR', 'YR', 'Yr'], true);
+                if (!rowMonth) {
+                    const keys = Object.keys(row);
+                    const monthKey = keys.find(k => normalizeFieldName(k).includes('month'));
+                    if (monthKey) rowMonth = String(row[monthKey]).trim();
+                }
+                if (!rowYear) {
+                    const keys = Object.keys(row);
+                    const yearKey = keys.find(k => normalizeFieldName(k).includes('year'));
+                    if (yearKey) rowYear = cleanNumericValue(row[yearKey]);
+                }
+                const normalizedRowMonth = monthToNumber(rowMonth);
+                const normalizedSelectedMonth = String(parseInt(month) || month).trim();
+                const normalizedRowYear = String(parseInt(parseNumericValue(rowYear) || rowYear) || '').trim();
+                const normalizedSelectedYear = String(parseInt(year) || year).trim();
+                return normalizedRowMonth === normalizedSelectedMonth && normalizedRowYear === normalizedSelectedYear;
+            });
+
+            const currentMonthNum = parseInt(month);
+            const currentYearNum = parseInt(year);
+            let prevMonth = currentMonthNum - 1;
+            let prevYear = currentYearNum;
+            if (prevMonth === 0) { prevMonth = 12; prevYear = currentYearNum - 1; }
+
+            const prevBalance = balanceData.find(row => {
+                let rowMonth = getFieldValue(row, ['month', 'Month', 'MONTH'], false);
+                let rowYear = getFieldValue(row, ['year', 'Year', 'YEAR'], true);
+                const normMonth = monthToNumber(rowMonth);
+                const normYear = String(parseInt(parseNumericValue(rowYear) || rowYear) || '').trim();
+                return normMonth === String(prevMonth) && normYear === String(prevYear);
+            });
+
+            let openingCash = 0;
+            let openingBank = 0;
+
+            if (prevBalance) {
+                openingCash = parseNumericValue(getFieldValue(prevBalance, ['Cash_on_hand', 'cash_on_hand', 'Cash On Hand'], true));
+                openingBank = parseNumericValue(getFieldValue(prevBalance, ['Bank_balance', 'bank_balance', 'Bank Balance'], true));
+            } else {
+                const currentBalance = balanceData.find(row => {
+                    let rowMonth = getFieldValue(row, ['month', 'Month', 'MONTH'], false);
+                    let rowYear = getFieldValue(row, ['year', 'Year', 'YEAR'], true);
+                    const normMonth = monthToNumber(rowMonth);
+                    const normYear = String(parseInt(parseNumericValue(rowYear) || rowYear) || '').trim();
+                    return normMonth === String(month) && normYear === String(year);
+                });
+                if (currentBalance) {
+                    openingCash = parseNumericValue(getFieldValue(currentBalance, ['Cash_on_hand', 'cash_on_hand', 'Cash On Hand'], true));
+                    openingBank = parseNumericValue(getFieldValue(currentBalance, ['Bank_balance', 'bank_balance', 'Bank Balance'], true));
+                }
+            }
+
+            const receiptsMap = new Map();
+            const expendituresMap = new Map();
+
+            filteredAccounts.forEach(row => {
+                const receipts = parseNumericValue(getFieldValue(row, ['Receipts', 'receipts', 'Receipt']));
+                const expenditure = parseNumericValue(getFieldValue(row, ['Expenditure', 'expenditure', 'Expenditure']));
+                const investments = parseNumericValue(getFieldValue(row, ['Investments', 'investments', 'Investment']));
+                const bankWithdrawl = parseNumericValue(getFieldValue(row, ['Bank_withdrawl', 'bank_withdrawl', 'Bank_withdrawal', 'Bank Withdrawal']));
+                const detailsRaw = getFieldValue(row, ['Details', 'details', 'Detail'], false) || '';
+                const details = addSpacesToText(detailsRaw);
+                const detailsLower = detailsRaw.toLowerCase();
+
+                if (bankWithdrawl > 0) {
+                    const rKey = detailsRaw || 'Cash withdrawal';
+                    const rKeyDisplay = details || 'Cash withdrawal';
+                    if (!receiptsMap.has(rKey)) receiptsMap.set(rKey, { details: rKeyDisplay, cash: 0, bank: 0 });
+                    receiptsMap.get(rKey).cash += bankWithdrawl;
+
+                    const eKey = 'Cash withdrawal';
+                    if (!expendituresMap.has(eKey)) expendituresMap.set(eKey, { details: 'Cash withdrawal', cash: 0, bank: 0 });
+                    expendituresMap.get(eKey).bank += bankWithdrawl;
+                }
+
+                if (receipts > 0 && bankWithdrawl === 0) {
+                    const type = determineTransactionType(row, true);
+                    if (!receiptsMap.has(detailsRaw)) receiptsMap.set(detailsRaw, { details: details, cash: 0, bank: 0 });
+                    if (type === 'cash') receiptsMap.get(detailsRaw).cash += receipts;
+                    else receiptsMap.get(detailsRaw).bank += receipts;
+                }
+
+                if (detailsLower.includes('deposited in bank') || detailsLower.includes('deposited to bank')) {
+                    const amount = receipts || expenditure;
+                    if (amount > 0) {
+                        if (!receiptsMap.has(detailsRaw)) receiptsMap.set(detailsRaw, { details, cash: 0, bank: 0 });
+                        receiptsMap.get(detailsRaw).bank += amount;
+                        if (!expendituresMap.has(detailsRaw)) expendituresMap.set(detailsRaw, { details, cash: 0, bank: 0 });
+                        expendituresMap.get(detailsRaw).cash += amount;
+                    }
+                    return;
+                }
+
+                if (expenditure > 0 && investments === 0) {
+                    const type = determineTransactionType(row, false);
+                    if (!expendituresMap.has(detailsRaw)) expendituresMap.set(detailsRaw, { details, cash: 0, bank: 0 });
+                    if (type === 'cash') expendituresMap.get(detailsRaw).cash += expenditure;
+                    else expendituresMap.get(detailsRaw).bank += expenditure;
+                }
+
+                if (investments > 0) {
+                    const invDetails = detailsLower.includes('investment') ? details : 'Investment under fixed deposits';
+                    if (!expendituresMap.has(invDetails)) expendituresMap.set(invDetails, { details: invDetails, cash: 0, bank: 0 });
+                    expendituresMap.get(invDetails).bank += investments;
+                }
+            });
+
+            manualEntries.forEach(entry => {
+                const details = entry.details;
+                const targetMap = entry.type === 'receipt' ? receiptsMap : expendituresMap;
+                const key = details; 
+                if (!targetMap.has(key)) targetMap.set(key, { details, cash: 0, bank: 0 });
+                const item = targetMap.get(key);
+                item.cash += entry.cash;
+                item.bank += entry.bank;
+            });
+
+            const monthBalances = balanceData.filter(row => {
+                let rowMonth = getFieldValue(row, ['month', 'Month', 'MONTH'], false);
+                const normMonth = monthToNumber(rowMonth);
+                const normYear = String(parseInt(parseNumericValue(getFieldValue(row, ['year', 'Year', 'YEAR'], true)) || getFieldValue(row, ['year', 'Year', 'YEAR'], true)) || '').trim();
+                return normMonth === String(month) && normYear === String(year);
+            });
+
+            let closingCash = 0;
+            let closingBank = 0;
+            if (monthBalances.length > 0) {
+                const last = monthBalances[monthBalances.length - 1];
+                closingCash = parseNumericValue(getFieldValue(last, ['Cash_on_hand', 'cash_on_hand', 'Cash On Hand'], true));
+                closingBank = parseNumericValue(getFieldValue(last, ['Bank_balance', 'bank_balance', 'Bank Balance'], true));
+            }
+
+            const receiptsArr = Array.from(receiptsMap.values());
+            const expendituresArr = Array.from(expendituresMap.values());
+            const rCashSum = receiptsArr.reduce((acc, item) => acc + item.cash, 0);
+            const rBankSum = receiptsArr.reduce((acc, item) => acc + item.bank, 0);
+            const eCashSum = expendituresArr.reduce((acc, item) => acc + item.cash, 0);
+            const eBankSum = expendituresArr.reduce((acc, item) => acc + item.bank, 0);
+
+            return {
+                receipts: receiptsArr,
+                expenditures: expendituresArr,
+                totals: {
+                    openingCash,
+                    openingBank,
+                    receiptsCash: rCashSum + openingCash,
+                    receiptsBank: rBankSum + openingBank,
+                    expenditureCash: eCashSum + closingCash,
+                    expenditureBank: eBankSum + closingBank,
+                    closingCash,
+                    closingBank
+                },
+                period: {
+                    month: monthNames[month],
+                    year,
+                    prevMonthName: getPreviousMonthName(month)
+                }
+            };
+        };
+
+        // --- COMPONENT: Statement ---
+        const Statement = ({ data }) => {
+            if (!data) return null;
+            const { receipts, expenditures, totals, period } = data;
+
+            const handleExportPDF = async () => {
+                const element = document.getElementById('statement-content');
+                if (!element) return;
+                try {
+                    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+                    const imgData = canvas.toDataURL('image/png');
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF('l', 'mm', 'a4');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+                    const imgWidth = canvas.width;
+                    const imgHeight = canvas.height;
+                    const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight) * 0.95;
+                    const imgX = (pdfWidth - imgWidth * ratio) / 2;
+                    const imgY = 10;
+                    pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+                    pdf.save(`Statement_${period.month}_${period.year}.pdf`);
+                } catch (err) {
+                    console.error('PDF generation failed', err);
+                    alert('Failed to generate PDF');
+                }
+            };
+
+            const handlePrint = () => window.print();
+
+            const handleExportExcel = () => {
+                const wb = XLSX.utils.book_new();
+                const wsData = [
+                    ['MGG Expenditure Statement for', `${period.month} ${period.year}`],
+                    [],
+                    [`${period.prevMonthName} - Closing balance of cash`, totals.openingCash],
+                    [`${period.prevMonthName} - Closing balance in bank`, totals.openingBank],
+                    [],
+                    ['RECEIPT DETAILS'],
+                    ['Receipt Details', 'Receipts (Cash)', 'Receipts (Bank)'],
+                    [`${period.prevMonthName} - Closing balance of cash`, totals.openingCash, ''],
+                    [`${period.prevMonthName} - Closing balance in bank`, '', totals.openingBank],
+                    ...receipts.filter(r => r.cash > 0 || r.bank > 0).map(r => [r.details, r.cash || '', r.bank || '']),
+                    ['Total Receipts:', totals.receiptsCash, totals.receiptsBank],
+                    [],
+                    ['EXPENDITURE DETAILS'],
+                    ['Expenditure Details', 'Expenditure (Cash)', 'Expenditure (Bank)'],
+                    ...expenditures.filter(e => e.cash > 0 || e.bank > 0).map(e => [e.details, e.cash || '', e.bank || '']),
+                    ['Cash in hand', totals.closingCash, ''],
+                    ['Cash at Bank', '', totals.closingBank],
+                    ['Total Expenditure:', totals.expenditureCash, totals.expenditureBank],
+                    [],
+                    ['Cash in hand:', totals.closingCash],
+                    ['Cash at Bank:', totals.closingBank],
+                    [],
+                    ['Total', 'Cash', 'Bank', 'Cash', 'Bank'],
+                    ['', 'Receipts', 'Receipts', 'Expenditure', 'Expenditure'],
+                    ['', totals.receiptsCash, totals.receiptsBank, totals.expenditureCash, totals.expenditureBank]
+                ];
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                ws['!cols'] = [{ wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+                XLSX.utils.book_append_sheet(wb, ws, 'Statement');
+                XLSX.writeFile(wb, `Statement_${period.month}_${period.year}.xlsx`);
+            };
+
+            const numericClass = "text-right font-bold text-black border border-gray-300 p-2 font-mono";
+            const textClass = "text-left border border-gray-300 p-2 text-slate-900";
+            const headerClass = "bg-slate-700 text-white font-semibold p-2 border border-slate-600 text-center";
+
+            return (
+                <div className="mt-8 print:mt-0 print:w-full">
+                    <div className="flex gap-4 justify-end mb-4 no-print">
+                        <button type="button" onClick={handleExportPDF} className="flex items-center gap-2 bg-red-700 text-white px-4 py-2 rounded hover:bg-red-800 transition shadow"><DownloadIcon size={18} /> Export PDF</button>
+                        <button type="button" onClick={handleExportExcel} className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded hover:bg-green-800 transition shadow"><DownloadIcon size={18} /> Export Excel</button>
+                        <button type="button" onClick={handlePrint} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-900 transition shadow"><PrinterIcon size={18} /> Print</button>
+                    </div>
+
+                    <div id="statement-content" className="bg-white p-8 shadow-lg max-w-5xl mx-auto border border-gray-200 print:shadow-none print:border-none print:w-full print:max-w-none print:p-0 print:m-0">
+                        <h2 className="text-2xl font-bold text-center mb-6 text-slate-900">MGG Expenditure Statement for <span className="text-indigo-900">{period.month} {period.year}</span></h2>
+                        <div className="bg-gray-50 p-4 rounded mb-6 border border-gray-200 print:bg-transparent print:border-gray-300">
+                            <div className="flex justify-between mb-2">
+                                <span className="font-bold text-slate-900">{period.prevMonthName} - Closing balance of cash:</span>
+                                <span className="font-bold text-black">{formatCurrency(totals.openingCash)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="font-bold text-slate-900">{period.prevMonthName} - Closing balance in bank:</span>
+                                <span className="font-bold text-black">{formatCurrency(totals.openingBank)}</span>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2 print:gap-4">
+                            <div>
+                                <h3 className="text-xl font-bold mb-3 text-slate-900 border-b-2 border-slate-300 pb-1">Receipt Details</h3>
+                                <table className="w-full text-sm border-collapse">
+                                    <thead><tr><th className={`${headerClass} text-left`}>Details</th><th className={headerClass}>Cash</th><th className={headerClass}>Bank</th></tr></thead>
+                                    <tbody>
+                                        {totals.openingCash > 0 && <tr><td className={textClass}>{period.prevMonthName} - Closing balance of cash</td><td className={numericClass}>{formatCurrency(totals.openingCash)}</td><td className={numericClass}></td></tr>}
+                                        {totals.openingBank > 0 && <tr><td className={textClass}>{period.prevMonthName} - Closing balance in bank</td><td className={numericClass}></td><td className={numericClass}>{formatCurrency(totals.openingBank)}</td></tr>}
+                                        {receipts.filter(r => r.cash > 0 || r.bank > 0).map((item, idx) => (
+                                            <tr key={idx} className="even:bg-gray-50 print:even:bg-transparent"><td className={textClass}>{item.details}</td><td className={numericClass}>{item.cash > 0 ? formatCurrency(item.cash) : ''}</td><td className={numericClass}>{item.bank > 0 ? formatCurrency(item.bank) : ''}</td></tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot><tr className="bg-slate-200 print:bg-slate-100"><td className="p-2 font-bold text-slate-900 border border-slate-300">Total Receipts:</td><td className={numericClass}>{formatCurrency(totals.receiptsCash)}</td><td className={numericClass}>{formatCurrency(totals.receiptsBank)}</td></tr></tfoot>
+                                </table>
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold mb-3 text-slate-900 border-b-2 border-slate-300 pb-1">Expenditure Details</h3>
+                                <table className="w-full text-sm border-collapse">
+                                    <thead><tr><th className={`${headerClass} text-left`}>Details</th><th className={headerClass}>Cash</th><th className={headerClass}>Bank</th></tr></thead>
+                                    <tbody>
+                                        {expenditures.filter(e => e.cash > 0 || e.bank > 0).map((item, idx) => (
+                                            <tr key={idx} className="even:bg-gray-50 print:even:bg-transparent"><td className={textClass}>{item.details}</td><td className={numericClass}>{item.cash > 0 ? formatCurrency(item.cash) : ''}</td><td className={numericClass}>{item.bank > 0 ? formatCurrency(item.bank) : ''}</td></tr>
+                                        ))}
+                                        {totals.closingCash > 0 && <tr><td className={textClass}>Cash in hand</td><td className={numericClass}>{formatCurrency(totals.closingCash)}</td><td className={numericClass}></td></tr>}
+                                        {totals.closingBank > 0 && <tr><td className={textClass}>Cash at Bank</td><td className={numericClass}></td><td className={numericClass}>{formatCurrency(totals.closingBank)}</td></tr>}
+                                    </tbody>
+                                    <tfoot><tr className="bg-slate-200 print:bg-slate-100"><td className="p-2 font-bold text-slate-900 border border-slate-300">Total Expenditure:</td><td className={numericClass}>{formatCurrency(totals.expenditureCash)}</td><td className={numericClass}>{formatCurrency(totals.expenditureBank)}</td></tr></tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 border-t-2 border-gray-300 pt-4 print:break-inside-avoid">
+                            <div className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded print:bg-transparent print:border print:border-gray-200">
+                                <div>
+                                    <div className="text-slate-900 font-bold">Cash in hand: <span className="text-black font-bold ml-2">{formatCurrency(totals.closingCash)}</span></div>
+                                    <div className="text-slate-900 font-bold">Cash at Bank: <span className="text-black font-bold ml-2">{formatCurrency(totals.closingBank)}</span></div>
+                                </div>
+                            </div>
+                            <table className="w-full text-sm border-collapse">
+                                <thead>
+                                    <tr><th className="bg-slate-900 text-white p-2 border border-slate-700">Total Summary</th><th className="bg-slate-900 text-white p-2 border border-slate-700 text-right">Cash</th><th className="bg-slate-900 text-white p-2 border border-slate-700 text-right">Bank</th><th className="bg-slate-900 text-white p-2 border border-slate-700 text-right">Cash</th><th className="bg-slate-900 text-white p-2 border border-slate-700 text-right">Bank</th></tr>
+                                    <tr><th className="p-2 border border-gray-300"></th><th className="p-2 border border-gray-300 bg-green-50 text-right text-slate-900 font-bold print:bg-gray-50">Receipts</th><th className="p-2 border border-gray-300 bg-green-50 text-right text-slate-900 font-bold print:bg-gray-50">Receipts</th><th className="p-2 border border-gray-300 bg-red-50 text-right text-slate-900 font-bold print:bg-gray-50">Expenditure</th><th className="p-2 border border-gray-300 bg-red-50 text-right text-slate-900 font-bold print:bg-gray-50">Expenditure</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td className="p-2 border border-gray-300 font-bold text-slate-900">Grand Total</td><td className={numericClass}>{formatCurrency(totals.receiptsCash)}</td><td className={numericClass}>{formatCurrency(totals.receiptsBank)}</td><td className={numericClass}>{formatCurrency(totals.expenditureCash)}</td><td className={numericClass}>{formatCurrency(totals.expenditureBank)}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- COMPONENT: App ---
+        const App = () => {
+            const [accountsFile, setAccountsFile] = useState(null);
+            const [balanceFile, setBalanceFile] = useState(null);
+            const [accountsData, setAccountsData] = useState([]);
+            const [balanceData, setBalanceData] = useState([]);
+            const [availableYears, setAvailableYears] = useState([]);
+            const [selectedYear, setSelectedYear] = useState('');
+            const [selectedMonth, setSelectedMonth] = useState('');
+            const [manualEntries, setManualEntries] = useState([]);
+            const [manualForm, setManualForm] = useState({ type: 'receipt', category: '', details: '', cash: '', bank: '' });
+            const [statementData, setStatementData] = useState(null);
+            const [message, setMessage] = useState(null);
+
+            const showMessage = (text, type) => {
+                setMessage({ text, type });
+                setTimeout(() => setMessage(null), 5000);
+            };
+
+            const handleFileUpload = async (e, type) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                    const data = await file.arrayBuffer();
+                    const workbook = XLSX.read(data);
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+                    if (type === 'accounts') {
+                        setAccountsFile({ name: file.name, data: jsonData });
+                        setAccountsData(jsonData);
+                        const years = new Set();
+                        jsonData.forEach(row => {
+                            const y = row['Year'] || row['year'] || row['YEAR'];
+                            if (y) years.add(String(y).trim());
+                        });
+                        setAvailableYears(Array.from(years).sort((a, b) => parseInt(b) - parseInt(a)));
+                    } else {
+                        setBalanceFile({ name: file.name, data: jsonData });
+                        setBalanceData(jsonData);
+                    }
+                    showMessage(`Loaded ${file.name} successfully`, 'success');
+                } catch (err) {
+                    showMessage(`Error loading file: ${err}`, 'error');
+                }
+            };
+
+            const handleAddManualEntry = () => {
+                if (!manualForm.details && !manualForm.category) { showMessage('Please provide details or category', 'error'); return; }
+                const newEntry = {
+                    id: Date.now(),
+                    type: manualForm.type,
+                    category: manualForm.category,
+                    details: manualForm.details || manualForm.category || 'Manual Entry',
+                    cash: parseFloat(manualForm.cash) || 0,
+                    bank: parseFloat(manualForm.bank) || 0
+                };
+                setManualEntries([...manualEntries, newEntry]);
+                setManualForm({ type: 'receipt', category: '', details: '', cash: '', bank: '' });
+                showMessage('Manual entry added', 'success');
+            };
+
+            const handleGenerate = () => {
+                if (!accountsData.length || !balanceData.length) { showMessage('Please load both CSV files first', 'error'); return; }
+                if (!selectedYear || !selectedMonth) { showMessage('Please select year and month', 'error'); return; }
+                try {
+                    const data = generateStatementData(accountsData, balanceData, selectedYear, selectedMonth, manualEntries);
+                    setStatementData(data);
+                    showMessage('Statement generated successfully', 'success');
+                } catch (err) {
+                    console.error(err);
+                    showMessage('Error generating statement', 'error');
+                }
+            };
+
+            return (
+                <div className="container mx-auto px-4 py-8 max-w-6xl print:p-0 print:py-0 print:max-w-none print:w-full">
+                    <header className="mb-8 text-center bg-gradient-to-r from-indigo-700 to-purple-800 text-white p-8 rounded-xl shadow-lg no-print">
+                        <h1 className="text-3xl font-bold mb-2">MGG Monthly Receipts & Expenditure Statement</h1>
+                    </header>
+
+                    <div className="bg-white rounded-xl shadow-md p-6 mb-8 border border-gray-100 no-print">
+                        <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2"><UploadIcon size={20} /> Import Data</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-900 mb-2">Accounts CSV</label>
+                                <div className="relative"><input type="file" accept=".csv,.xlsx" onChange={(e) => handleFileUpload(e, 'accounts')} className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-900 hover:file:bg-indigo-100 cursor-pointer border border-gray-300 rounded-lg p-2" /></div>
+                                {accountsFile && <div className="mt-1 text-xs text-green-800 font-medium flex items-center"><FileTextIcon size={12} className="mr-1"/> {accountsFile.name} loaded</div>}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-900 mb-2">Balance CSV</label>
+                                <div className="relative"><input type="file" accept=".csv,.xlsx" onChange={(e) => handleFileUpload(e, 'balance')} className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-900 hover:file:bg-purple-100 cursor-pointer border border-gray-300 rounded-lg p-2" /></div>
+                                {balanceFile && <div className="mt-1 text-xs text-green-800 font-medium flex items-center"><FileTextIcon size={12} className="mr-1"/> {balanceFile.name} loaded</div>}
+                            </div>
+                        </div>
+                        <div className="border-t border-gray-100 pt-6">
+                            <h2 className="text-lg font-semibold text-slate-900 mb-4">Select Period</h2>
+                            <div className="flex gap-4 flex-wrap items-end">
+                                <div><label className="block text-xs font-bold text-slate-800 uppercase mb-1">Year</label><select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="border border-gray-300 rounded-md p-2 min-w-[150px] focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900"><option value="">-- Select --</option>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
+                                <div><label className="block text-xs font-bold text-slate-800 uppercase mb-1">Month</label><select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="border border-gray-300 rounded-md p-2 min-w-[150px] focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900"><option value="">-- Select --</option>{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (<option key={i+1} value={i+1}>{m}</option>))}</select></div>
+                                <button onClick={handleGenerate} className="bg-indigo-700 text-white px-6 py-2 rounded-md hover:bg-indigo-800 transition font-medium shadow-sm ml-auto">Generate Statement</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-md p-6 mb-8 border border-gray-100 no-print">
+                        <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2"><PlusIcon size={20} /> Add Manual Entry (Optional)</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4">
+                            <div className="md:col-span-1"><select value={manualForm.type} onChange={(e) => setManualForm({...manualForm, type: e.target.value})} className="w-full border p-2 rounded text-sm text-slate-900"><option value="receipt">Receipt</option><option value="expenditure">Expenditure</option></select></div>
+                            <div className="md:col-span-2"><input placeholder="Details / Category" value={manualForm.details} onChange={(e) => setManualForm({...manualForm, details: e.target.value})} className="w-full border p-2 rounded text-sm text-slate-900 placeholder:text-slate-400" /></div>
+                            <div className="md:col-span-1"><input type="number" placeholder="Cash Amount" value={manualForm.cash} onChange={(e) => setManualForm({...manualForm, cash: e.target.value})} className="w-full border p-2 rounded text-sm text-slate-900 placeholder:text-slate-400" /></div>
+                            <div className="md:col-span-1"><input type="number" placeholder="Bank Amount" value={manualForm.bank} onChange={(e) => setManualForm({...manualForm, bank: e.target.value})} className="w-full border p-2 rounded text-sm text-slate-900 placeholder:text-slate-400" /></div>
+                            <div className="md:col-span-1"><button onClick={handleAddManualEntry} className="w-full bg-slate-700 text-white p-2 rounded text-sm hover:bg-slate-800">Add</button></div>
+                        </div>
+                        {manualEntries.length > 0 && (
+                            <div className="mt-4 bg-gray-50 p-3 rounded text-sm">
+                                <h3 className="font-bold text-slate-900 mb-2">Added Entries:</h3>
+                                <div className="space-y-1">
+                                    {manualEntries.map(entry => (
+                                        <div key={entry.id} className="flex justify-between items-center border-b border-gray-200 pb-1">
+                                            <span className="text-slate-900"><span className={`uppercase text-xs font-bold mr-2 ${entry.type === 'receipt' ? 'text-green-700' : 'text-red-700'}`}>{entry.type}</span>{entry.details}</span>
+                                            <div className="flex items-center gap-3"><span className="text-slate-700 font-medium">Cash: {entry.cash} | Bank: {entry.bank}</span><button onClick={() => setManualEntries(manualEntries.filter(e => e.id !== entry.id))} className="text-red-600 hover:text-red-800"><Trash2Icon size={14} /></button></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {message && <div className={`fixed bottom-5 right-5 p-4 rounded-lg shadow-xl text-white ${message.type === 'success' ? 'bg-green-700' : 'bg-red-700'} transition-opacity duration-500 no-print`}>{message.text}</div>}
+                    <Statement data={statementData} />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

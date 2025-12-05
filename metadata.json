@@ -1,0 +1,4 @@
+{
+  "name": "Financial Statement Generator",
+  "description": "A tool to generate monthly receipt and expenditure statements from CSV data, featuring automated categorization and PDF/Excel export."
+}
